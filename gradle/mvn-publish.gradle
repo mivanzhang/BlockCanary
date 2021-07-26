@@ -1,0 +1,199 @@
+apply plugin: 'maven'
+apply plugin: 'maven-publish'
+
+repositories {
+    mavenCentral()
+}
+
+group = GROUP
+version = VERSION
+
+
+task uploadLocal(type: Upload) {
+    // 需要把config设置成project的，要不然会报错
+    configuration = project.configurations.findByName('archives')
+    repositories {
+        mavenDeployer {
+            def localDir = uri("${rootProject.buildFile.parentFile.absolutePath}/repos")
+            snapshotRepository(url: localDir)
+            repository(url: localDir)
+        }
+    }
+}
+
+uploadArchives {
+    repositories {
+        mavenDeployer {
+            repository(url: 'http://nexus.corp.kuaishou.com:88/nexus/content/repositories/releases/') {
+            }
+            pom.project {
+                groupId = "com.yxcorp.${project.getName()}"
+                artifactId "${project.getName()}"
+            }
+        }
+    }
+}
+
+task gitRemoveTag(type: Exec) {
+    commandLine 'git', 'tag', '-d', "library/${project.name}/${version}"
+}
+
+task gitAddTag(type: Exec) {
+    commandLine 'git', 'tag', "library/${project.name}/${version}"
+}
+
+task gitPushTag(type: Exec, dependsOn: 'gitAddTag') {
+    commandLine 'git', 'push', 'origin', '--tags'
+}
+
+uploadArchives.dependsOn uploadLocal
+uploadArchives.finalizedBy gitPushTag
+
+ext.mavenUrl = 'http://nexus.corp.kuaishou.com:88/nexus/content/repositories/releases/'
+ext.pomFile = "${project.buildDir.getPath()}/publications/maven/pom-default.xml"
+if (!ext.has("packaging")) {
+    ext.packaging = 'aar'
+}
+if (ext.packaging == 'aar') {
+    ext.uploadFile = "${project.buildDir.getPath()}/outputs/aar/${project.name}-release.aar"
+} else {
+    ext.uploadFile = "${project.buildDir.getPath()}/libs/${project.name}-${VERSION}.jar"
+}
+ext.sourcesFile = "${project.buildDir.getPath()}/libs/${project.name}-${VERSION}-sources.jar"
+ext.javadocFile = "${project.buildDir.getPath()}/libs/${project.name}-${VERSION}-javadoc.jar"
+
+task mavenUpload {
+    doLast {
+        exec {
+            commandLine "mvn", "deploy:deploy-file",
+                    "-DpomFile=" + pomFile,
+                    "-Dpackaging=" + packaging,
+                    "-Durl=" + mavenUrl,
+                    "-Dfile=" + uploadFile,
+                    "-Dsources=" + sourcesFile,
+                    "-Djavadoc=" + javadocFile,
+                    "-DrepositoryId=kuaishou.releases"
+        }
+    }
+}
+
+
+mavenUpload.dependsOn clean
+mavenUpload.dependsOn publishToMavenLocal
+publishToMavenLocal.mustRunAfter clean
+mavenUpload.finalizedBy gitPushTag
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            artifactId = "${project.getName()}"
+
+            def isAARPackaging = "aar" == "${project.ext.packaging}"
+
+            if (isAARPackaging) {
+                task androidJavadocs(type: Javadoc) {
+                    source = android.sourceSets.main.java.srcDirs
+                    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
+                    android.libraryVariants.all { variant ->
+                        if (variant.name == 'release') {
+                            owner.classpath += variant.javaCompile.classpath
+                        }
+                    }
+                    failOnError false
+                    exclude '**/R.html', '**/R.*.html', '**/index.html'
+                }
+
+                task androidJavadocsJar(type: Jar, dependsOn: androidJavadocs) {
+                    classifier = 'javadoc'
+                    from androidJavadocs.destinationDir
+                }
+
+                task androidSourcesJar(type: Jar) {
+                    classifier = 'sources'
+                    from android.sourceSets.main.java.srcDirs
+                }
+
+                artifact bundleReleaseAar
+                artifact androidSourcesJar
+                artifact androidJavadocsJar
+            } else {
+                from components.java
+
+                task javaJavadocsJar(type: Jar) {
+                    javadoc.options.encoding = "UTF-8"
+                    from javadoc
+                    classifier = 'javadoc'
+                }
+
+                task javaSourcesJar(type: Jar) {
+                    from sourceSets.main.allJava
+                    classifier = 'sources'
+                }
+
+                artifact javaSourcesJar
+                artifact javaJavadocsJar
+            }
+
+            pom.withXml {
+                asNode().appendNode('build').appendNode("finalName", artifactId)
+
+                final repository = asNode().appendNode('distributionManagement').appendNode('repository')
+                repository.appendNode("uniqueVersion", "false")
+                repository.appendNode("layout", "default")
+                repository.appendNode("id", "kuaishou.releases")
+                repository.appendNode("name", "Kuaishou")
+                repository.appendNode("url", "${project.ext.mavenUrl}")
+            }
+            if (isAARPackaging) {
+                pom.withXml {
+                    final dependenciesNode = asNode().appendNode('dependencies')
+                    ext.addDependency = { Dependency dep, String scope ->
+                        if (dep.group == null || dep.version == null || dep.name == null || dep.name == "unspecified") {
+                            return // ignore invalid dependencies
+                        }
+                        final dependencyNode = dependenciesNode.appendNode('dependency')
+                        dependencyNode.appendNode('groupId', dep.group)
+                        dependencyNode.appendNode('artifactId', dep.name)
+                        dependencyNode.appendNode('version', dep.version)
+                        dependencyNode.appendNode('scope', scope)
+                        if (!dep.transitive) {
+                            // If this dependency is transitive, we should force exclude all its dependencies them from the POM
+                            final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                            exclusionNode.appendNode('groupId', '*')
+                            exclusionNode.appendNode('artifactId', '*')
+                        } else if (!dep.properties.excludeRules.empty) {
+                            // Otherwise add specified exclude rules
+                            final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                            dep.properties.excludeRules.each { ExcludeRule rule ->
+                                exclusionNode.appendNode('groupId', rule.group ?: '*')
+                                exclusionNode.appendNode('artifactId', rule.module ?: '*')
+                            }
+                        }
+                    }
+                    // List all "compile" dependencies (for old Gradle)
+                    configurations.compile.getAllDependencies().each { dep -> addDependency(dep, "compile") }
+                    // List all "api" dependencies (for new Gradle) as "compile" dependencies
+                    configurations.api.getAllDependencies().each { dep -> addDependency(dep, "compile") }
+                    configurations.implementation.getAllDependencies().each { dep ->
+                        Boolean dup = false
+                        configurations.api.getAllDependencies().each { apiDep ->
+                            if (apiDep.contentEquals(dep)) {
+                                dup = true
+                            }
+                        }
+
+                        if (!dup) {
+                            addDependency(dep, "runtime")
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            url = "${project.ext.mavenUrl}"
+        }
+    }
+}
