@@ -29,7 +29,7 @@ allprojects {
     }
 
     task allPublish {
-        subprojects.each { if(!it.name.equals("app")) dependsOn("${it.name}:mavenUpload") }
+        subprojects.each { if(!it.name.equals("blockcanary-sample")) dependsOn("${it.name}:mavenUpload") }
     }
 
 }
