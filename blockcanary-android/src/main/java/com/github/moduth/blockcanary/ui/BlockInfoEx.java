@@ -66,24 +66,24 @@ final class BlockInfoEx extends BlockInfo {
                     blockInfo.freeMemory = line.split(KV)[1];
                 } else if (line.startsWith(KEY_CPU_BUSY)) {
                     blockInfo.cpuBusy = Boolean.valueOf(line.split(KV)[1]);
-                } else if (line.startsWith(KEY_CPU_RATE)) {
-                    String[] split = line.split(KV);
-                    if (split.length > 1) {
-                        StringBuilder cpuRateSb = new StringBuilder(split[1]);
-                        cpuRateSb.append(line.split(KV)[1]).append(SEPARATOR);
-                        line = reader.readLine();
-
-                        // read until SEPARATOR appears
-                        while (line != null) {
-                            if (!line.equals("")) {
-                                cpuRateSb.append(line).append(SEPARATOR);
-                            } else {
-                                break;
-                            }
-                            line = reader.readLine();
-                        }
-                        blockInfo.cpuRateInfo = cpuRateSb.toString();
-                    }
+//                } else if (line.startsWith(KEY_CPU_RATE)) {
+//                    String[] split = line.split(KV);
+//                    if (split.length > 1) {
+//                        StringBuilder cpuRateSb = new StringBuilder(split[1]);
+//                        cpuRateSb.append(line.split(KV)[1]).append(SEPARATOR);
+//                        line = reader.readLine();
+//
+//                        // read until SEPARATOR appears
+//                        while (line != null) {
+//                            if (!line.equals("")) {
+//                                cpuRateSb.append(line).append(SEPARATOR);
+//                            } else {
+//                                break;
+//                            }
+//                            line = reader.readLine();
+//                        }
+//                        blockInfo.cpuRateInfo = cpuRateSb.toString();
+//                    }
                 } else if (line.startsWith(KEY_STACK)) {
                     StringBuilder stackSb = new StringBuilder(line.split(KV)[1]);
                     line = reader.readLine();

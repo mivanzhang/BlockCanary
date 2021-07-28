@@ -56,7 +56,7 @@ public class AppContext extends BlockCanaryContext {
 
     @Override
     public int provideBlockThreshold() {
-        return 500;
+        return 800;
     }
 
     @Override

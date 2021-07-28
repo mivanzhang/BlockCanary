@@ -2,6 +2,8 @@
 
 buildscript {
     repositories {
+        maven { url 'http://nexus.corp.kuaishou.com:88/nexus/content/repositories/releases' }
+
         mavenCentral()
         jcenter()
         google()
@@ -15,6 +17,7 @@ buildscript {
 
 allprojects {
     repositories {
+        maven { url 'http://nexus.corp.kuaishou.com:88/nexus/content/repositories/releases' }
         mavenCentral()
         jcenter()
         google()
